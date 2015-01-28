@@ -42,7 +42,7 @@ Changes:
 #define LAMBDAw		0.9         /* Decay rate for w eligibility trace. */
 #define LAMBDAv		0.8         /* Decay rate for v eligibility trace. */
 
-#define MAX_FAILURES     100         /* Termination criterion. */
+#define MAX_FAILURES     3000         /* Termination criterion. */
 #define MAX_STEPS        100000
 
 typedef float vector[N_BOXES];

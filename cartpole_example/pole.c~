@@ -79,7 +79,6 @@ main()
     {
       /*--- Choose action randomly, biased by current weight. ---*/
       y = (random < prob_push_right(w[box]));
-      printf("y:%d\n",y);
       /*--- Update traces. ---*/
       e[box] += (1.0 - LAMBDAw) * (y - 0.5);
       xbar[box] += (1.0 - LAMBDAv);

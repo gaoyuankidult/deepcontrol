@@ -7,15 +7,15 @@
 class SerialPort
 {
 private:
-    char buffer[32];
+    char buffer[120];
     void *context;
     void *requester;
     int rc;
 public:
     SerialPort();
     ~SerialPort();
-    void send(std::string buffer);
-    std::string receive();
+    void send(std::string buffer, bool verbose);
+    std::string receive(bool verbose);
 
 };
 

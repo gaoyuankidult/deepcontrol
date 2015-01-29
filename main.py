@@ -1,57 +1,44 @@
-import lasagne
-import theano
+import lasagne as l
 import einstein as E
 
 
 setting = E.model.Setting()
-setting.nbatches = 1
+setting.n_batches = 1
 setting.learning_rate = 1e-4
-setting.append_layer(lasagne.layers.InputLayer)
-setting.layers[0]
-setting.append_layer(lasagne.layers.LSTMLayer)
-setting.append_layer(lasagne.layers.ReshapeLayer)
-setting.append_layer(lasagne.layers.DenseLayer)
-setting.append_layer(lasagne.layers.ReshapeLayer)
+setting.n_time_steps = 5
+setting.n_input_features = 4
+setting.n_output_features = 1
+
+input_layer_setting = E.model.InputLayerSetting()
+input_layer_setting.n_input_features = setting.n_input_features
+setting.append_layer(layer=l.layers.InputLayer, layer_setting=input_layer_setting)
+
+reshape_layer_setting = E.model.ReshapeLayerSetting()
+reshape_layer_setting.reshape_shape = (setting.n_batches,setting.n_time_steps,setting.n_input_features)
+setting.append_layer(l.layers.ReshapeLayer, reshape_layer_setting)
+
+lstm_layer_setting = E.model.LSTMLayerSetting()
+lstm_layer_setting.n_lstm_hidden_units = 20
+setting.append_layer(l.layers.LSTMLayer, lstm_layer_setting)
+
+reshape_layer_setting = E.model.ReshapeLayerSetting()
+reshape_layer_setting.reshape_shape= (setting.n_batches * setting.n_time_steps, lstm_layer_setting.n_lstm_hidden_units)
+setting.append_layer(l.layers.ReshapeLayer,reshape_layer_setting)
+
+dense_layer_setting = E.model.DenseLayerSetting()
+dense_layer_setting.dense_n_hidden_units = 20
+setting.append_layer(l.layers.DenseLayer, dense_layer_setting)
+
+reshape_layer_setting = E.model.ReshapeLayerSetting()
+reshape_layer_setting.reshape_shape = (setting.n_batches, setting.n_time_steps, setting.n_output_features)
+setting.append_layer(l.layers.ReshapeLayer, reshape_layer_setting)
 
 
-# Input features
-N_INPUT_FEATURES = 4
+model = E.model.Model(setting)
+serial = E.serial.socket.SocketServer()
 
-# Output Features
-N_OUTPUT_FEATURES = 1
-
-# Length of each input sequence of data
-N_TIME_STEPS = 12  # in cart pole balancing case, x, x_dot, theta, theta_dot and reward are inputs
+# first send n_time_steps information to the client
+serial.send_int(setting.n_time_steps)
 
 
-# Number of units in the hidden (recurrent) layer
-N_HIDDEN = 20
-
-# This means how many sequences you would like to input to the sequence.
-N_BATCH = 1
-
-# SGD learning rate
-LEARNING_RATE = 1e-6
-
-# Number of iterations to train the net
-N_ITERATIONS = 1000000
-
-# Forget rate
-FORGET_RATE = 0.9
-
-    
-GRADIENT_METHOD = 'sgd'
-
-model_params = [
-    (lasagne.layers.InputLayer, {"shape": (N_BATCH, N_TIME_STEPS, N_INPUT_FEATURES)}),
-
-    (lasagne.layers.LSTMLayer, {"num_units": N_HIDDEN}),
-
-    (lasagne.layers.ReshapeLayer, {"shape": (N_BATCH * N_TIME_STEPS, N_HIDDEN)}),
-
-    (lasagne.layers.DenseLayer, {"num_units": N_OUTPUT_FEATURES, "nonlinearity": theano.tensor.tanh}),
-
-    (lasagne.layers.ReshapeLayer, {"shape": (N_BATCH, N_TIME_STEPS, N_OUTPUT_FEATURES)})
-    ]
-    
-modle = E.model.Model(model_params=model_params, n_time_steps=4)
+model.train()

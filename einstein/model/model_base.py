@@ -21,7 +21,7 @@ class Model():
         """
         # Get input as internal representation
         self.setting = setting
-        self.model_params = setting.get_layer_params()
+        self.model_params = setting.get_layers_params()
 
         # Initialize symbolic parameters
         self.__init_symb()
@@ -31,7 +31,6 @@ class Model():
         self.previous_layer = None
 
         # Initialize communication socket
-        self.socket = e.serial.socket.SocketServer()
         self.ring_buffer = d.RingBuffer(size=self.setting.n_time_steps + 1)  # need reward of next step for training
 
         # Build the model
@@ -69,7 +68,7 @@ class Model():
             self.previous_layer = self.current_layer
 
     def __build_cost_function(self):
-        if self.cost_f == None:
+        if self.setting._cost_f == None:
             self.cost = TT.mean((self.layers[-1].get_output(self.input)[:, :, :]
                     - self.target_output[:, :, :])**2)
         else:
@@ -82,49 +81,54 @@ class Model():
 
     def __build_functions(self):
         self._train = T.function([self.input, self.target_output], self.cost, updates=self.updates)
-        self.y_pred_reward = T.function([input], self.layers[-1].get_output(input))
-        self.compute_cost = T.function([input, self.target_output], self.cost)
+        self.y_pred_reward = T.function([self.input], self.layers[-1].get_output(self.input))
+        self.compute_cost = T.function([self.input, self.target_output], self.cost)
 
     def train(self):
-        ring_buffer = d.RingBuffer(size=self.n_ + 1) # need reward of next step for training
 
-    for n in range(N_ITERATIONS):
-        signal = serial.receive()
-        epoch_data = signal.split(',') # rm1 is reward of last time step
-        ring_buffer.append(epoch_data)
-        buffered_data = ring_buffer.get()
-        if None not in buffered_data:
-            all_data = theano_form(list=buffered_data, shape=[N_BATCH, N_TIME_STEPS+1, N_TRANS])
+        for n in xrange(self.setting.n_iterations):
+            signal = self.serial.receive()
+            epoch_data = signal.split(',') # rm1 is reward of last time step
+            self.ring_buffer.append(epoch_data)
+            buffered_data = self.ring_buffer.get()
+            if None not in buffered_data:
+                all_data = d.theano_form(list=buffered_data, shape=[self.setting.n_batches,
+                                                                    self.setting.n_time_steps+1,
+                                                                    self.setting._n_trans])
 
-            train_inputs = all_data[:, 0:N_TIME_STEPS, 1::]
-            model_reward_result = y_pred_reward(train_inputs)
-            # set desired output, the second number of result is reward
-            train_outputs = all_data[
-                            :,
-                            1::, # extract reward from 1 to N_TIME_STEPS,
-                            0].reshape([N_BATCH, N_TIME_STEPS, N_REWARD])# Reward takes the first position
-            costs[n] = train(train_inputs, train_outputs)
-            if not n % 10:
-                cost_val = compute_cost(train_inputs, train_outputs)
-                print "Iteration {} validation cost = {}".format(n, cost_val)
-                print "reward predict: ", model_reward_result
-                print "train results:", train_outputs
+                train_inputs = all_data[:, 0:self.setting.n_time_steps, 1::]
+                model_reward_result = self.y_pred_reward(train_inputs)
+                # set desired output, the second number of result is reward
+                train_outputs = all_data[
+                                :,
+                                1::, # extract reward from 1 to N_TIME_STEPS,
+                                0].reshape([self.setting.n_batches,
+                                            self.setting.n_time_steps,
+                                            self.setting._n_output_features])# Reward takes the first position
+                self.costs[n] = self.train(train_inputs, train_outputs)
+                if not n % 10:
+                    cost_val = self.compute_cost(train_inputs, train_outputs)
+                    print "Iteration {} validation cost = {}".format(n, cost_val)
+                    print "reward predict: ", model_reward_result
+                    print "train results:", train_outputs
 
-            # Extract the most recent action from all result.
-            p = (model_action_result[N_BATCH-1, -1, 0] + 1)/2
-            action = binomial(1, p, 1)
-            serial.send("%d\0"%action)
+                # Extract the most recent action from all result.
+                action = 1
+                self.serial.send_int("%d\0"%action)
 
 
 class ModelSetting(object):
     def __init__(self, n_batches=None, learning_rate=None, time_steps=None, n_input_features=None,
-                 n_output_features =None, cost_f=None):
+                 n_output_features =None, cost_f=None, n_iterations=None, n_trains=None):
         self._n_batches = n_batches
         self._learning_rate = learning_rate
         self._n_time_steps = time_steps
         self._n_input_features = n_input_features
         self._n_output_features = n_output_features
         self._cost_f = cost_f
+        self._n_iterations = n_iterations
+        # Number of transmitted variables
+        self._n_trans = n_trains
 
     @property
     def learning_rate(self):
@@ -171,35 +175,45 @@ class ModelSetting(object):
         assert hasattr(value, '__call__')
         self._cost_f = value
 
+    @property
+    def n_iterations(self):
+        return self._n_iterations
+
+    @n_iterations.setter
+    def n_iterations(self, value):
+        assert isinstance(value, int)
+        self._n_iterations = value
+
+
 class LayerSetting(object):
 
-    def iter_properties_of_class(self):
-        for varname in vars(self):
-            value = getattr(self, varname)
+    @staticmethod
+    def iter_properties_of_class(cls):
+        for varname in vars(cls):
+            value = getattr(cls, varname)
             if isinstance(value, property):
                 yield varname
 
     def properties(self):
-        print "1"
         result = {}
         for cls in self.__class__.mro():
-            for varname in self.iter_properties_of_class():
+            for varname in self.iter_properties_of_class(cls):
                 result[varname] = getattr(self, varname)
         return result
 
 class InputLayerSetting(LayerSetting):
-    def __init__(self, n_input_features=None):
+    def __init__(self, shape=None):
         super(InputLayerSetting, self).__init__()
-        self._n_input_features = n_input_features
+        self._shape = shape
 
     @property
-    def n_input_features(self):
-        return self.n_input_features
+    def shape(self):
+        return self._shape
 
-    @n_input_features.setter
-    def n_input_features(self, value):
-        assert isinstance(value, int), "The input is " + value + "However, we restrict input type to be int."
-        self._n_input_features = value
+    @shape.setter
+    def shape(self, value):
+        assert isinstance(value, tuple), "The input is " + value + "However, we restrict input type to be int."
+        self._shape = value
 
 
 class LSTMLayerSetting(LayerSetting):
@@ -212,7 +226,7 @@ class LSTMLayerSetting(LayerSetting):
         return self._n_lstm_hidden_units
 
     @num_units.setter
-    def n_lstm_hidden_units(self, value):
+    def num_units(self, value):
         assert isinstance(value, int)
         self._n_lstm_hidden_units = value
 
@@ -224,33 +238,33 @@ class ReshapeLayerSetting(LayerSetting):
 
     @property
     def shape(self):
-        return self.__shape
+        return self._shape
 
     @shape.setter
     def shape(self, value):
-        assert isinstance(value, int)
+        assert isinstance(value, tuple)
         self._shape = value
 
 class DenseLayerSetting(LayerSetting):
     def __init__(self, dense_n_hidden_units=None):
         super(DenseLayerSetting, self).__init__()
-        self.num_units = dense_n_hidden_units
+        self._dense_n_hidden_units = dense_n_hidden_units
 
     @property
-    def dense_n_hidden_units(self):
-        return self.num_units
+    def num_units(self):
+        return self._dense_n_hidden_units
 
-    @dense_n_hidden_units .setter
-    def dense_n_hidden_units(self, value):
+    @num_units .setter
+    def num_units(self, value):
         assert isinstance(value, int)
-        self.num_units= value
+        self._dense_n_hidden_units = value
 
 
 class Setting(ModelSetting):
     def __init__(self):
         super(Setting, self).__init__()
         self.layers = []
-        self.Layer = namedtuple('Layer', ['object', 'setting'], verbose=True)
+        self.Layer = namedtuple('Layer', ['object', 'setting'], verbose=False)
 
     def l2s_map(self, layer):
         return {L.layers.InputLayer: InputLayerSetting,
@@ -259,13 +273,13 @@ class Setting(ModelSetting):
                 L.layers.DenseLayer: DenseLayerSetting}[layer]
 
     def append_layer(self, layer, layer_setting):
-        for k, v in layer_setting.properties():
+        for k, v in layer_setting.properties().items():
             if v is None:
                 raise ValueError," The value of %s ->" % k + "is _None in layer" + layer.__name__
         self.layers.append(self.Layer(object=layer, setting=layer_setting))
 
-    def get_layers_parameters(self):
-        return [(layer, vars(setting)) for layer, setting in self.layers.items()]
+    def get_layers_params(self):
+        return [(layer, layer_setting.properties()) for layer, layer_setting in self.layers]
 
 
 

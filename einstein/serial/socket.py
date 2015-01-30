@@ -23,7 +23,7 @@ class SocketServer(Socket):
         self.socket.bind("tcp://*:%s" % port)
 
     def send_int(self, i):
-        assert isinstance(i ,int)
+        assert isinstance(i, int)
         self.send("%i\0" % i)
 
 class SocketClient(Socket):

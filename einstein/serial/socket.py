@@ -26,6 +26,7 @@ class SocketServer(Socket):
         assert isinstance(i, int)
         self.send("%i\0" % i)
 
+
 class SocketClient(Socket):
 
     def __init__(self, port="5556"):

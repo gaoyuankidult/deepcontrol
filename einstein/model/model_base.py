@@ -85,9 +85,10 @@ class Model():
         self.compute_cost = T.function([self.input, self.target_output], self.cost)
 
     def train(self):
-
+        # first send n_time_steps information to the client
+        self.setting.serial.send_int(setting.n_time_steps)
         for n in xrange(self.setting.n_iterations):
-            signal = self.serial.receive()
+            signal = self.setting.serial.receive()
             epoch_data = signal.split(',') # rm1 is reward of last time step
             self.ring_buffer.append(epoch_data)
             buffered_data = self.ring_buffer.get()
@@ -119,7 +120,7 @@ class Model():
 
 class ModelSetting(object):
     def __init__(self, n_batches=None, learning_rate=None, time_steps=None, n_input_features=None,
-                 n_output_features =None, cost_f=None, n_iterations=None, n_trains=None):
+                 n_output_features =None, cost_f=None, n_iterations=None, n_trains=None, serial=None):
         self._n_batches = n_batches
         self._learning_rate = learning_rate
         self._n_time_steps = time_steps
@@ -129,6 +130,8 @@ class ModelSetting(object):
         self._n_iterations = n_iterations
         # Number of transmitted variables
         self._n_trans = n_trains
+        self._serial=serial
+
 
     @property
     def learning_rate(self):
@@ -183,6 +186,15 @@ class ModelSetting(object):
     def n_iterations(self, value):
         assert isinstance(value, int)
         self._n_iterations = value
+
+    @property
+    def serial(self):
+        return self.serial
+
+    @serial.setter
+    def serial(self, value):
+        assert (value == e.seiral.socket.SocketServer)
+        self._serial = value
 
 
 class LayerSetting(object):

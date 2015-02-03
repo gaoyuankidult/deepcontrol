@@ -81,7 +81,7 @@ class Model():
 
     def __build_functions(self):
         self._train = T.function([self.input, self.target_output], self.cost, updates=self.updates)
-        self.y_pred_reward = T.function([self.input], self.layers[-1].get_output(self.input))
+        self.predict = T.function([self.input], self.layers[-1].get_output(self.input))
         self.compute_cost = T.function([self.input, self.target_output], self.cost)
 
     def train(self):
@@ -98,7 +98,7 @@ class Model():
                                                                     self.setting._n_trans])
 
                 train_inputs = all_data[:, 0:self.setting.n_time_steps, 1::]
-                model_reward_result = self.y_pred_reward(train_inputs)
+                model_reward_result = self.predict(train_inputs)
                 # set desired output, the second number of result is reward
                 train_outputs = all_data[
                                 :,

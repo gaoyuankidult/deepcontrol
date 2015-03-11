@@ -64,7 +64,8 @@ cns.n_trans = 5
 input_layer_setting = E.model.InputLayerSetting()
 input_layer_setting.shape = (cns.n_batches,
                              cns.n_time_steps,
-                             cns.n_input_features)
+                             cns.n_input_features + 1)
+#input_layer_setting.input_var =
 cns.append_layer(layer=L.layers.InputLayer, layer_setting=input_layer_setting)
 
 lstm_layer_setting = E.model.LSTMLayerSetting()
@@ -97,8 +98,6 @@ class ModelBetaActor(E.model.Model):
     def get_binomial_action(self, p):
         return np.random.binomial(1, p)
 
-    def train(self, inputs, outputs):
-        self.build_functions()
 
 class ModelBetaCritic(E.model.Model):
     def __init__(self):
@@ -107,17 +106,17 @@ class ModelBetaCritic(E.model.Model):
     def build_functions(self):
         super(ModelBetaCritic, self).build_functions()
 
-    def train(self, inputs, outputs):
-        self.build_functions()
-        self.predict(input)
 
 
 
 class ModelBeta(E.model.Model):
     def __init__(self, setting):
-        self.mba = ModelBetaActor()
-        self.mbc = ModelBetaCritic()
+        self.mba = ModelBetaActor(setting)
+        self.mbc = ModelBetaCritic(setting)
         self.setting = setting
+
+    def __build_functions(self):
+        self._train = T.function([self.input, self.target_output], self.cost, update=self.updates)
     def train(self):
         print "sending"
         # first send n_time_steps information to the client
@@ -135,15 +134,16 @@ class ModelBeta(E.model.Model):
                                                                     self.setting.n_trans])
 
                 actor_train_inputs = all_data[:, 0:self.setting.n_time_steps, 1::]
+                # Predict action of actor model
                 action_predict = self.mba.predict(actor_train_inputs)
-                critic_train_inputs = action_predict[:, :, :] + actor_train_inputs
+                critic_train_inputs = np.dstack((action_predict, actor_train_inputs))
                 critic_train_outputs = all_data[
                                 :,
                                 1::, # extract reward from 1 to N_TIME_STEPS,
                                 0].reshape([self.setting.n_batches,
                                             self.setting.n_time_steps,
                                             self.setting.n_output_features])# Reward takes the first position
-                self.mbc.train(inputs=critic_train_inputs, outputs=critic_train_outputs)
+
 
 
 

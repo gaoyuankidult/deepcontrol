@@ -1,7 +1,7 @@
 __author__ = 'gao'
 
-from layers.rec_layers import LSTMLayer
-from layers.basic_layers import DenseLayer
+from layers_old.rec_layers import LSTMLayer
+from layers_old.basic_layers import DenseLayer
 from initializer.rand_init import RandomSparseInit
 from numpy.random.mtrand import RandomState
 import theano.tensor as T
@@ -20,7 +20,7 @@ config.exception_verbosity='high'
 config.on_unused_input='ignore'
 
 
-class Model():
+class Model(object):
     """
     This class takes care of the modelling of system.
     """
@@ -80,8 +80,7 @@ class Model():
         for _ in xrange(epochs):
             print self.__train(inputs, targets)
 
-    def predict(self, inputs, targets):
-        pass
+
 
 if __name__=="__main__":
     from numpy import arange

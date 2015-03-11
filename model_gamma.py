@@ -46,6 +46,10 @@ reshape_layer_setting = E.model.ReshapeLayerSetting()
 reshape_layer_setting.shape = (setting.n_batches, setting.n_time_steps, 1)
 setting.append_layer(L.layers.ReshapeLayer, reshape_layer_setting)
 
+# Merge this layer with input layer.
+merge_layer_setting = E.layers.ConcatLayerSetting
+
+
 # Followed by Another LSTM Layer
 lstm_layer_setting = E.model.LSTMLayerSetting()
 lstm_layer_setting.num_units = 100

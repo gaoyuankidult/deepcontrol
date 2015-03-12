@@ -1,16 +1,16 @@
 import lasagne as L
 import theano as T
 import theano.tensor as TT
-import einstein as e
-import einstein.data_structure as d
+from ..tools import AbstractMethod
+from ..layers import LSTMLayer, ReshapeLayer, InputLayer, DenseLayer
+import einstein as E
 from collections import namedtuple
 
-
-class Model():
+class Model(object):
     """
     This class takes care of the modelling of system.
     """
-    def __init__(self, setting):
+    def __init__(self, setting, name="not given", default="default"):
         """
         This function is responsible for creating a model based on the dictionary
         :param model_params: a ordered dictionary type that contains information of layers.
@@ -21,6 +21,7 @@ class Model():
         """
         # Get input as internal representation
         self.setting = setting
+        self.name = name
         self.model_params = setting.get_layers_params()
 
         # Initialize symbolic parameters
@@ -31,13 +32,18 @@ class Model():
         self.previous_layer = None
 
         # Initialize communication socket
-        self.ring_buffer = d.RingBuffer(size=self.setting.n_time_steps + 1)  # need reward of next step for training
+        self.ring_buffer = E.tools.RingBuffer(size=self.setting.n_time_steps + 1)  # need reward of next step for training
 
         # Build the model
-        self.__build_model()
-        self.__build_cost_function()
-        self.__build_training_rule()
-        self.__build_functions()
+        if default == "default":
+            self.build_default_model()
+            self.build_functions()
+        elif default == "masked":
+            self.build_masked_model()
+            self.build_masked_functions()
+
+
+
 
     def __init_symb(self):
         """
@@ -46,8 +52,27 @@ class Model():
         """
         self.input = TT.tensor3('input')
         self.target_output = TT.tensor3('target_output')
+        self.mask = TT.matrix("mask")
 
-    def __build_model(self):
+    def build_model(self):
+        AbstractMethod()
+
+    def build_masked_model(self):
+        self.__build_network()
+        self.__build_masked_cost_function()
+        self.__build_training_rule()
+        print "Model: %s built according to masked setting, with input data and output data as two input variables..." \
+              % (self.name)
+
+
+    def build_default_model(self):
+        self.__build_network()
+        self.__build_cost_function()
+        self.__build_training_rule()
+        print "Model: %s built according to default setting, with input data and output data as two input variables..." \
+              % (self.name)
+
+    def __build_network(self):
         """
         Use parameters of the layers to build model.
         :return:
@@ -56,16 +81,29 @@ class Model():
         self.layers = []
         # Instantiate all layer
         for layer, params in self.model_params:
-
             # Test whether this is the first layer or not
-            if None == self.previous_layer:
+
+            if type(layer) == InputLayer:
                 self.current_layer = layer(**params)
-            else:
+            elif None == self.previous_layer:
+                self.current_layer = layer(**params)
+            elif layer == LSTMLayer \
+                or layer == ReshapeLayer:
                 self.current_layer = layer(input_layer=self.previous_layer, **params)
+            else:
+                self.current_layer = layer(incoming=self.previous_layer, **params)
 
             # Append current layer into layer list
             self.layers.append(self.current_layer)
             self.previous_layer = self.current_layer
+
+    def __build_masked_cost_function(self):
+        if self.setting._cost_f == None:
+            self.cost = TT.mean((self.layers[-1].get_output(self.input, mask=self.mask)[:, :, :]
+                    - self.target_output[:, :, :])**2)
+        else:
+            self.cost = self.cost_f(self.layers[-1].get_output(self.input, mask=self.mask)[:, :, :], self.target_output[:, :, :])
+
 
     def __build_cost_function(self):
         if self.setting._cost_f == None:
@@ -77,53 +115,32 @@ class Model():
     def __build_training_rule(self):
         # Use NAG for training
         all_params = L.layers.get_all_params(self.layers[-1])
-        self.updates = L.updates.nesterov_momentum(self.cost, all_params, self.setting.learning_rate)
+        self.updates = E.optimizer.adam_grad(self.cost, all_params, self.setting.learning_rate)
 
-    def __build_functions(self):
+    def build_masked_functions(self):
+        self._train = T.function([self.input, self.target_output, self.mask], self.cost, updates=self.updates,on_unused_input='ignore')
+        self.predict = T.function([self.input, self.mask], self.layers[-1].get_output(self.input, mask=self.mask), on_unused_input='ignore')
+        self.compute_cost = T.function([self.input, self.target_output, self.mask], self.cost, on_unused_input='ignore')
+        #self.compute_cost = T.function([self.input, self.target_output, self.mask], self.cost, on_unused_input='ignore')
+
+    def build_functions(self):
         self._train = T.function([self.input, self.target_output], self.cost, updates=self.updates)
         self.predict = T.function([self.input], self.layers[-1].get_output(self.input))
         self.compute_cost = T.function([self.input, self.target_output], self.cost)
 
+    def get_all_params(self):
+        return E.layers.get_all_params(self.layers[-1])
+
     def train(self):
-        # first send n_time_steps information to the client
-        self.setting.serial.send_int(setting.n_time_steps)
-        for n in xrange(self.setting.n_iterations):
-            signal = self.setting.serial.receive()
-            epoch_data = signal.split(',') # rm1 is reward of last time step
-            self.ring_buffer.append(epoch_data)
-            buffered_data = self.ring_buffer.get()
-            if None not in buffered_data:
-                all_data = d.theano_form(list=buffered_data, shape=[self.setting.n_batches,
-                                                                    self.setting.n_time_steps+1,
-                                                                    self.setting._n_trans])
-
-                train_inputs = all_data[:, 0:self.setting.n_time_steps, 1::]
-                model_reward_result = self.predict(train_inputs)
-                # set desired output, the second number of result is reward
-                train_outputs = all_data[
-                                :,
-                                1::, # extract reward from 1 to N_TIME_STEPS,
-                                0].reshape([self.setting.n_batches,
-                                            self.setting.n_time_steps,
-                                            self.setting._n_output_features])# Reward takes the first position
-                self.costs[n] = self.train(train_inputs, train_outputs)
-                if not n % 10:
-                    cost_val = self.compute_cost(train_inputs, train_outputs)
-                    print "Iteration {} validation cost = {}".format(n, cost_val)
-                    print "reward predict: ", model_reward_result
-                    print "train results:", train_outputs
-
-                # Extract the most recent action from all result.
-                action = 1
-                self.serial.send_int("%d\0"%action)
+        AbstractMethod()
 
 
 class ModelSetting(object):
-    def __init__(self, n_batches=None, learning_rate=None, time_steps=None, n_input_features=None,
+    def __init__(self, n_batches=None, learning_rate=None, n_time_steps=None, n_input_features=None,
                  n_output_features =None, cost_f=None, n_iterations=None, n_trains=None, serial=None):
         self._n_batches = n_batches
         self._learning_rate = learning_rate
-        self._n_time_steps = time_steps
+        self._n_time_steps = n_time_steps
         self._n_input_features = n_input_features
         self._n_output_features = n_output_features
         self._cost_f = cost_f
@@ -170,6 +187,15 @@ class ModelSetting(object):
         self._n_input_features = value
 
     @property
+    def n_output_features(self):
+        return self._n_output_features
+
+    @n_output_features.setter
+    def n_output_features(self, value):
+        assert isinstance(value, int)
+        self._n_output_features = value
+
+    @property
     def cost_f(self):
         return self._cost_f
 
@@ -188,12 +214,21 @@ class ModelSetting(object):
         self._n_iterations = value
 
     @property
+    def n_trans(self):
+        return self._n_trans
+
+    @n_trans.setter
+    def n_trans(self, value):
+        assert isinstance(value, int)
+        self._n_trans = value
+
+    @property
     def serial(self):
-        return self.serial
+        return self._serial
 
     @serial.setter
     def serial(self, value):
-        assert (value == e.seiral.socket.SocketServer)
+        assert isinstance(value, E.serial.socket.SocketServer)
         self._serial = value
 
 
@@ -228,6 +263,7 @@ class InputLayerSetting(LayerSetting):
         self._shape = value
 
 
+
 class LSTMLayerSetting(LayerSetting):
     def __init__(self, n_lstm_hidden_units=None):
         super(LSTMLayerSetting, self).__init__()
@@ -241,6 +277,7 @@ class LSTMLayerSetting(LayerSetting):
     def num_units(self, value):
         assert isinstance(value, int)
         self._n_lstm_hidden_units = value
+
 
 
 class ReshapeLayerSetting(LayerSetting):
@@ -258,24 +295,52 @@ class ReshapeLayerSetting(LayerSetting):
         self._shape = value
 
 class DenseLayerSetting(LayerSetting):
-    def __init__(self, dense_n_hidden_units=None):
+    def __init__(self, dense_n_hidden_units=None, nonlineariry=None):
         super(DenseLayerSetting, self).__init__()
         self._dense_n_hidden_units = dense_n_hidden_units
+        self._nonlinearity = nonlineariry
 
     @property
     def num_units(self):
         return self._dense_n_hidden_units
 
-    @num_units .setter
+    @num_units.setter
     def num_units(self, value):
         assert isinstance(value, int)
         self._dense_n_hidden_units = value
 
+    @property
+    def nonlinearity(self):
+        return self._nonlinearity
+
+    @nonlinearity.setter
+    def nonlinearity(self, value):
+        self._nonlinearity = value
+
+class ReshapeLayerSetting(LayerSetting):
+    def __init__(self, reshape_to=None):
+        super(ReshapeLayerSetting, self).__init__()
+        self._shape = reshape_to
+
+    @property
+    def shape(self):
+        return self._shape
+
+    @shape.setter
+    def shape(self, value):
+        assert isinstance(value, tuple)
+        self._shape = value
+
 
 class Setting(ModelSetting):
-    def __init__(self):
-        super(Setting, self).__init__()
+
+    def __init__(self, n_batches=None, learning_rate=None, n_time_steps=None, n_input_features=None,
+                 n_output_features =None, cost_f=None, n_iterations=None, n_trains=None, serial=None):
+        super(Setting, self).__init__(n_batches=n_batches, learning_rate=learning_rate, n_time_steps=n_time_steps,
+                                      n_input_features=n_input_features, n_output_features =n_output_features,
+                                      cost_f=cost_f, n_iterations=n_iterations, n_trains=n_trains, serial=serial)
         self.layers = []
+        self._previous_layer_n_out = None
         self.Layer = namedtuple('Layer', ['object', 'setting'], verbose=False)
 
     def l2s_map(self, layer):
@@ -289,6 +354,19 @@ class Setting(ModelSetting):
             if v is None:
                 raise ValueError," The value of %s ->" % k + "is _None in layer" + layer.__name__
         self.layers.append(self.Layer(object=layer, setting=layer_setting))
+        if layer in [L.layers.LSTMLayer, L.layers.DenseLayer]:
+            self._previous_layer_n_out = layer_setting.num_units
+
+
+    @property
+    def previous_layer_n_out(self):
+        if self._previous_layer_n_out == None:
+            raise AttributeError,"Previous layer does not have Attribute num_units, may be previous layers is not a real layer?"
+        return self._previous_layer_n_out
+    @previous_layer_n_out.setter
+    def previous_layer_n_out(self, value):
+        self._previous_layer_n_out = value
+
 
     def get_layers_params(self):
         return [(layer, layer_setting.properties()) for layer, layer_setting in self.layers]

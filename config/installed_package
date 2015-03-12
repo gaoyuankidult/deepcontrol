@@ -1,1 +1,3 @@
 1. need to install apt-get install libfreetype6-dev before installing matplotlib
+
+2. install pybrain

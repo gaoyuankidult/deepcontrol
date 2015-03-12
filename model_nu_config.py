@@ -1,4 +1,6 @@
 import einstein as E
+from math import floor
+
 import theano.tensor as TT
 
 
@@ -28,21 +30,19 @@ ans.append_layer(layer=E.layers.ReshapeLayer,
 
 
 class ModelNuActor(E.model.Model):
-    def __init__(self, setting):
-        super(ModelNuActor, self).__init__(setting)
-        self.build_functions()
+    def __init__(self, setting, *args, **kwargs):
+        super(ModelNuActor, self).__init__(setting, *args,**kwargs)
 
-    def build_functions(self):
-        super(ModelNuActor, self).build_functions()
 
 
 
 
 cns = E.model.Setting(n_batches=1,
                       learning_rate=2e-4,
-                      n_time_steps=200,  # Unfolding it for whole sequence
+                      n_time_steps=3,  # Unfolding it for whole sequence
                       n_input_features=5,  # Action and current states
-                      n_output_features=5,  # Reward and predicted states
+                      n_output_features=4,  # Predicted states
+
                       n_iterations=100000)
 
 # First Layer is Input Layer
@@ -53,32 +53,34 @@ cns.append_layer(layer=E.layers.InputLayer,
 cns.append_layer(layer=E.layers.LSTMLayer,
                  layer_setting=E.model.LSTMLayerSetting(n_lstm_hidden_units=10))
 
-cns.append_layer(layer=E.layers.ReshapeLayer,
-                 layer_setting=E.model.ReshapeLayerSetting(reshape_to=(cns.n_batches,
-                                                                       cns.n_time_steps,
-                                                                       1)))
-cns.append_layer(layer=E.layers.DenseLayer,
-                 layer_setting=E.model.DenseLayerSetting(dense_n_hidden_units=cns._n_output_features,
-                                                         nonlineariry=E.layers.nonlinearities.identity))
+cns.append_layer(layer=E.layers.LSTMLayer,
+                 layer_setting=E.model.LSTMLayerSetting(n_lstm_hidden_units=10))
 
 cns.append_layer(layer=E.layers.ReshapeLayer,
+                 layer_setting=E.model.ReshapeLayerSetting(reshape_to=(cns.n_batches * cns.n_time_steps,
+                                                                       cns.previous_layer_n_out)))
+cns.append_layer(layer=E.layers.DenseLayer,
+                 layer_setting=E.model.DenseLayerSetting(dense_n_hidden_units=cns.n_output_features,
+                                                         nonlineariry=E.layers.nonlinearities.identity))
+cns.append_layer(layer=E.layers.ReshapeLayer,
                  layer_setting=E.model.ReshapeLayerSetting(reshape_to=(cns.n_batches,
                                                                        cns.n_time_steps,
-                                                                       cns._n_output_features)))
+                                                                       cns.previous_layer_n_out)))
 
 
 class ModelNuCritic(E.model.Model):
-    def __init__(self, setting, mask):
-        super(ModelNuCritic, self).__init__(setting, mask=mask)
+    def __init__(self, setting, *args,**kwargs):
+        super(ModelNuCritic, self).__init__(setting, *args, **kwargs)
 
-    def build_functions(self):
-        super(ModelNuCritic, self).build_functions()
 
     def get_input_shape(self):
         return self.layers[0].shape
 
     def get_output_shape(self):
         return self.layers[-1].shape
+
+    def train(self, input_data, output_data):
+        return self._train(input_data, output_data)
 
 
 class ModelNu(object):
@@ -102,6 +104,8 @@ class ModelNu(object):
         self.input_experiences = []
         self.output_experiences = []
         self.masks = []
+        self.n_real_examples = 0
+
 
     def check_best_reward(self, proposal):
         if proposal > self.best_reward:
@@ -141,23 +145,33 @@ class ModelNu(object):
                 self.actor_model.setting.learning_rate * fakt2 * (self.current_sample_variances**2 -
                                               self.model_variances ** 2) / self.model_variances
 
-    def train_critic_network(self, training_method=None, traing_step=None, mask=None):
+    def train_critic_network(self, training_method=None, training_step=None, training_percent=None):
+        assert (training_percent is None or training_step is None)
+        all_data = zip(self.input_experiences, self.output_experiences, self.masks)
+        if training_step is None:
+            training_step = floor(training_percent * len(all_data))
         costs = []
-        all_data = zip(self.input_experiences, self.output_experiences)
+
         if training_method == "direct training":
             for input, output, mask in all_data:
                 critic_train_input = E.tools.theano_form(input, shape=self.critic_model.get_input_shape())
                 critic_train_output = E.tools.theano_form(output, shape=self.critic_model.get_output_shape())
-                costs.append(self.critic_model.train(critic_train_input, critic_train_output, mask=mask))
-        elif training_method == "stocastic training":
-            for _ in xrange(traing_step):
-                input, output = E.tools.random.choose(all_data)
-                self.critic_model.train(input, output, mask)
+                costs.append(self.critic_model.train(critic_train_input, critic_train_output))
+        elif training_method == "stochastic training":
+
+            for _ in xrange(training_step):
+                i = E.tools.random.choice(range(len(all_data)))
+                input, output, mask = all_data[i]
+                critic_train_input = E.tools.theano_form(input, shape=self.critic_model.get_input_shape())
+                critic_train_output = E.tools.theano_form(output, shape=self.critic_model.get_output_shape())
+                costs.append(self.critic_model.train(critic_train_input, critic_train_output))
+
 
     def store_past_experiences(self, input, output, mask):
         self.input_experiences.extend(input)
         self.output_experiences.extend(output)
         self.masks.extend(mask)
+        self.n_real_examples += 1
 
 
 

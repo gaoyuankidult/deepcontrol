@@ -38,7 +38,7 @@ setting.append_layer(L.layers.ReshapeLayer, reshape_layer_setting)
 
 ## Middle layer is Action Layer
 dense_layer_setting = E.model.DenseLayerSetting()
-dense_layer_setting.num_units = 1 # only one action
+dense_layer_setting.num_units = 1  # only one action
 dense_layer_setting.nonlinearity = L.nonlinearities.sigmoid
 setting.append_layer(L.layers.DenseLayer, dense_layer_setting)
 
@@ -72,7 +72,7 @@ class ModelAlpha(E.model.Model):
         super(ModelAlpha, self).__init__(setting)
 
     def build_functions(self):
-        super(ModelAlpha,self).build_functions()
+        super(ModelAlpha, self).build_functions()
         self.pred_action = T.function([self.input], self.layers[-5].get_output(self.input))
 
     def get_binomial_action(self, p):

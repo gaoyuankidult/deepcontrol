@@ -10,7 +10,7 @@ from einstein.plot.plots import BoxPlot
 
 
 
-plt = BoxPlot(name="model_eta_benchatk")
+plt = BoxPlot(name="model_kappa_benchatk")
 plt.title = "cartpole problem benchmark"
 plt.x_label = "time steps"
 plt.y_label = "reward"

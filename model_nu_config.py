@@ -1,5 +1,6 @@
 import einstein as E
 from math import floor
+
 import theano.tensor as TT
 
 
@@ -35,11 +36,13 @@ class ModelNuActor(E.model.Model):
 
 
 
+
 cns = E.model.Setting(n_batches=1,
                       learning_rate=2e-4,
                       n_time_steps=3,  # Unfolding it for whole sequence
                       n_input_features=5,  # Action and current states
                       n_output_features=4,  # Predicted states
+
                       n_iterations=100000)
 
 # First Layer is Input Layer
@@ -68,6 +71,7 @@ cns.append_layer(layer=E.layers.ReshapeLayer,
 class ModelNuCritic(E.model.Model):
     def __init__(self, setting, *args,**kwargs):
         super(ModelNuCritic, self).__init__(setting, *args, **kwargs)
+
 
     def get_input_shape(self):
         return self.layers[0].shape
@@ -101,6 +105,7 @@ class ModelNu(object):
         self.output_experiences = []
         self.masks = []
         self.n_real_examples = 0
+
 
     def check_best_reward(self, proposal):
         if proposal > self.best_reward:
@@ -146,6 +151,7 @@ class ModelNu(object):
         if training_step is None:
             training_step = floor(training_percent * len(all_data))
         costs = []
+
         if training_method == "direct training":
             for input, output, mask in all_data:
                 critic_train_input = E.tools.theano_form(input, shape=self.critic_model.get_input_shape())
@@ -160,11 +166,11 @@ class ModelNu(object):
                 critic_train_output = E.tools.theano_form(output, shape=self.critic_model.get_output_shape())
                 costs.append(self.critic_model.train(critic_train_input, critic_train_output))
 
+
     def store_past_experiences(self, input, output, mask):
         self.input_experiences.extend(input)
         self.output_experiences.extend(output)
         self.masks.extend(mask)
-
         self.n_real_examples += 1
 
 

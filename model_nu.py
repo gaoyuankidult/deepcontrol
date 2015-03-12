@@ -17,6 +17,7 @@ if __name__ == "__main__":
             assert E.tools.check_list_depth(self.records) == 2, \
                 "The records should be two dimensional array, maybe forget using ModelRecorder.new_epoch() ?"
 
+
         def record_real_tests(self):
             pass
 
@@ -55,6 +56,7 @@ if __name__ == "__main__":
                                            maxsteps=200)
     sim_balance_task.randomInitialization = False
     sim_balance_task.reset()
+
     real_experiment = E.actions.RealExperiment(task=real_balance_task,
                                                actor_model=actor_model)
     thought_experiment = E.actions.ThoughtExperiment(task=sim_balance_task,
@@ -65,6 +67,7 @@ if __name__ == "__main__":
     sys_sampler = E.samplers.SysSampler()
 
     model_nu = ModelNu(actor_model=actor_model, critic_model=critic_model)
+
 
 
     for n in xrange(4):
@@ -110,12 +113,14 @@ if __name__ == "__main__":
             #if cost1 + cost2 < 0.003 * 200 and i >= 50:
             #    pass
             #else:
+
             model_nu.update_baseline()
             model_nu.update_weights()
             model_nu.update_variances()
             model_recorder.record(model_nu.mean_reward)
             model_recorder.print_running_avg(current_epoch=i, n_real_example=model_nu.n_real_examples,
                                              interval=50, steps=50)
+
 
 
 

@@ -1,1 +1,1 @@
-from experiement import Experiment
+from experiement import Experiment, RealExperiment, ThoughtExperiment
